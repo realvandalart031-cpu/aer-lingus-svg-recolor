@@ -201,9 +201,13 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-[data-testid="stToolbar"] { visibility: hidden; }
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
+[data-testid="stToolbar"] { display: none !important; }
+[data-testid="stStatusWidget"] { display: none !important; }
+[data-testid="stBottom"] { display: none !important; }
+#MainMenu { display: none !important; }
+footer { display: none !important; }
+.viewerBadge_container__1QSob { display: none !important; }
+.styles_viewerBadge__1yB5_ { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
