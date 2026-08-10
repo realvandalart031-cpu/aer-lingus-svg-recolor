@@ -199,6 +199,14 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown("""
+<style>
+[data-testid="stToolbar"] { visibility: hidden; }
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+</style>
+""", unsafe_allow_html=True)
+
 # Init palette in session state
 if "palette" not in st.session_state:
     st.session_state.palette = dict(DEFAULT_PALETTE)
