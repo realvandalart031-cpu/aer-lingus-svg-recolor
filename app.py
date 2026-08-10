@@ -2,37 +2,22 @@ import streamlit as st
 import xml.etree.ElementTree as ET
 import re
 import math
-import os
 import io
 
-# ─── Paleta Aer Lingus + Ursinho ─────────────────────────────────────────────
+# ─── Default Palette ──────────────────────────────────────────────────────────
 
-BRAND_PALETTE = {
-    "aer-lingus-teal":  "#006272",
-    "deep-teal":        "#083D4B",
-    "shamrock-green":   "#84BD00",
-    "black":            "#050606",
-    "pure-white":       "#FFFFFF",
-    "cloud-grey":       "#E8E8E8",
-    "bear-body":        "#DDA152",
-    "bear-muzzle":      "#FAE8C8",
-    "bear-ears-feet":   "#BE813A",
-    "bear-nose":        "#67401C",
-    "bear-buttons":     "#94A8AD",
-}
-
-PALETTE_LABELS = {
-    "aer-lingus-teal":  "Aer Lingus Teal",
-    "deep-teal":        "Deep Teal",
-    "shamrock-green":   "Shamrock Green",
-    "black":            "Black",
-    "pure-white":       "Pure White",
-    "cloud-grey":       "Cloud Grey",
-    "bear-body":        "Bear — Corpo",
-    "bear-muzzle":      "Bear — Focinho",
-    "bear-ears-feet":   "Bear — Orelhas/Pés",
-    "bear-nose":        "Bear — Nariz",
-    "bear-buttons":     "Bear — Botões",
+DEFAULT_PALETTE = {
+    "Aer Lingus Teal":   "#006272",
+    "Deep Teal":         "#083D4B",
+    "Shamrock Green":    "#84BD00",
+    "Black":             "#050606",
+    "Pure White":        "#FFFFFF",
+    "Cloud Grey":        "#E8E8E8",
+    "Bear — Body":       "#DDA152",
+    "Bear — Muzzle":     "#FAE8C8",
+    "Bear — Ears/Feet":  "#BE813A",
+    "Bear — Nose":       "#67401C",
+    "Bear — Buttons":    "#94A8AD",
 }
 
 MIN_AREA = 5.0
@@ -62,9 +47,16 @@ def rgb_to_lab(rgb):
 def delta_e(lab1, lab2):
     return math.sqrt(sum((a - b) ** 2 for a, b in zip(lab1, lab2)))
 
-PALETTE_LAB = {name: rgb_to_lab(hex_to_rgb(h)) for name, h in BRAND_PALETTE.items()}
+def build_palette_lab(palette):
+    lab = {}
+    for name, hex_val in palette.items():
+        try:
+            lab[name] = rgb_to_lab(hex_to_rgb(hex_val))
+        except Exception:
+            pass
+    return lab
 
-def nearest_brand_color(hex_color, palette_lab, palette):
+def nearest_brand_color(hex_color, palette, palette_lab):
     try:
         rgb = hex_to_rgb(hex_color)
         lab = rgb_to_lab(rgb)
@@ -73,20 +65,29 @@ def nearest_brand_color(hex_color, palette_lab, palette):
 
     r, g, b = rgb
 
-    # Override: verdes (G dominante, não é turquesa)
+    # Green override: G dominant and not teal/cyan
     if g > r + 10 and g > b + 10 and g > 80 and b < 120:
-        return palette["shamrock-green"], "shamrock-green"
+        for name, val in palette.items():
+            if "green" in name.lower() or "shamrock" in name.lower():
+                return val, name
+        # fallback: pick greenest palette color
+        green_name = min(palette_lab, key=lambda n: delta_e(lab, palette_lab[n]))
+        return palette[green_name], green_name
 
-    # Override: azuis médios saturados → teal
+    # Blue override: medium saturated blues → teal
     is_very_light = r > 150 and g > 150 and b > 150
     if not is_very_light and b > r + 30 and b > 100:
-        return palette["aer-lingus-teal"], "aer-lingus-teal"
+        for name, val in palette.items():
+            if "teal" in name.lower() and "deep" not in name.lower():
+                return val, name
 
     best = min(palette_lab, key=lambda n: delta_e(lab, palette_lab[n]))
 
-    # Bear-muzzle só para beges quentes (R >> B)
-    if best == "bear-muzzle" and (r - b) < 35:
-        best = "cloud-grey"
+    # Muzzle check: only warm beige (R >> B) qualifies
+    if "muzzle" in best.lower() and (r - b) < 35:
+        grey_candidates = [n for n in palette_lab if "grey" in n.lower() or "gray" in n.lower() or "white" in n.lower()]
+        if grey_candidates:
+            best = min(grey_candidates, key=lambda n: delta_e(lab, palette_lab[n]))
 
     return palette[best], best
 
@@ -124,7 +125,7 @@ def estimate_bbox_area(d_attr):
         return 0
     return (max(xs) - min(xs)) * (max(ys) - min(ys))
 
-def process_svg_bytes(svg_bytes, min_area, active_palette, active_palette_lab):
+def process_svg_bytes(svg_bytes, min_area, palette, palette_lab):
     tree = ET.parse(io.BytesIO(svg_bytes))
     root = tree.getroot()
 
@@ -133,18 +134,16 @@ def process_svg_bytes(svg_bytes, min_area, active_palette, active_palette_lab):
     merged_count = 0
 
     if style_elem is not None:
-        original_style = style_elem.text or ""
-        classes = parse_style_block(original_style)
+        classes = parse_style_block(style_elem.text or "")
 
         for cls_name, props in classes.items():
             fill = props.get("fill")
             if not fill or fill.lower() in ("none", "transparent") or not fill.startswith("#"):
                 continue
             if fill not in color_map:
-                brand_hex, brand_name = nearest_brand_color(fill, active_palette_lab, active_palette)
+                brand_hex, brand_name = nearest_brand_color(fill, palette, palette_lab)
                 color_map[fill] = (brand_hex, brand_name)
-            brand_hex, _ = color_map[fill]
-            props["fill"] = brand_hex
+            props["fill"] = color_map[fill][0]
 
         hex_to_canonical = {}
         class_alias = {}
@@ -178,16 +177,11 @@ def process_svg_bytes(svg_bytes, min_area, active_palette, active_palette_lab):
     removed = 0
     def remove_small(parent):
         nonlocal removed
-        to_remove = []
-        for child in list(parent):
-            if child.tag in shape_tags:
-                if estimate_bbox_area(child.get("d", "")) < min_area:
-                    to_remove.append(child)
-            else:
-                remove_small(child)
-        for el in to_remove:
-            parent.remove(el)
+        for child in [c for c in list(parent) if c.tag in shape_tags and estimate_bbox_area(c.get("d", "")) < min_area]:
+            parent.remove(child)
             removed += 1
+        for child in parent:
+            remove_small(child)
 
     remove_small(root)
 
@@ -203,100 +197,132 @@ st.set_page_config(
     layout="wide",
 )
 
+# Init palette in session state
+if "palette" not in st.session_state:
+    st.session_state.palette = dict(DEFAULT_PALETTE)
+
 # Header
 col_logo, col_title = st.columns([1, 8])
 with col_logo:
     st.markdown("## ☘️")
 with col_title:
     st.markdown("## Aer Lingus SVG Recolor Tool")
-    st.caption("Converte automaticamente SVGs para a paleta oficial da marca")
+    st.caption("Automatically converts SVGs to the official brand colour palette")
 
 st.divider()
 
-# Sidebar — paleta
+# ─── Sidebar — palette editor ─────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### 🎨 Paleta ativa")
-    st.caption("Cores que serão aplicadas ao SVG")
+    st.markdown("### 🎨 Active Palette")
+    st.caption("Colours applied to the SVG")
 
-    active_palette = {}
-    active_palette_lab = {}
+    palette = st.session_state.palette
+    to_delete = None
 
-    for key, hex_val in BRAND_PALETTE.items():
-        label = PALETTE_LABELS[key]
-        col_swatch, col_info = st.columns([1, 4])
+    for name in list(palette.keys()):
+        hex_val = palette[name]
+        col_swatch, col_name, col_hex, col_del = st.columns([1, 3, 3, 1])
         with col_swatch:
             st.markdown(
-                f'<div style="width:28px;height:28px;border-radius:4px;'
-                f'background:{hex_val};border:1px solid #ccc;margin-top:6px"></div>',
+                f'<div style="width:24px;height:24px;border-radius:4px;'
+                f'background:{hex_val};border:1px solid #555;margin-top:8px"></div>',
                 unsafe_allow_html=True,
             )
-        with col_info:
-            new_hex = st.text_input(label, value=hex_val, key=f"color_{key}", label_visibility="visible")
-            new_hex = new_hex.strip()
+        with col_name:
+            new_name = st.text_input("Name", value=name, key=f"name_{name}", label_visibility="collapsed")
+        with col_hex:
+            new_hex = st.text_input("Hex", value=hex_val, key=f"hex_{name}", label_visibility="collapsed")
             if not new_hex.startswith("#"):
                 new_hex = "#" + new_hex
+        with col_del:
+            if st.button("✕", key=f"del_{name}", help="Remove colour"):
+                to_delete = name
 
-        active_palette[key] = new_hex
-        try:
-            active_palette_lab[key] = rgb_to_lab(hex_to_rgb(new_hex))
-        except Exception:
-            active_palette_lab[key] = PALETTE_LAB[key]
+        # Apply rename/recolor
+        if new_name != name or new_hex != hex_val:
+            palette[new_name] = new_hex
+            if new_name != name:
+                del palette[name]
+
+    if to_delete and to_delete in palette:
+        del palette[to_delete]
+        st.rerun()
 
     st.divider()
-    min_area = st.slider("Remover paths menores que (área)", 0, 100, 5, help="Micro-paths abaixo desse valor são deletados")
 
-# Main
-uploaded = st.file_uploader("Arraste o SVG aqui ou clique para selecionar", type=["svg"], accept_multiple_files=True)
+    # Add new colour
+    st.markdown("**Add colour**")
+    col_new_name, col_new_hex = st.columns([3, 3])
+    with col_new_name:
+        new_color_name = st.text_input("Name", placeholder="e.g. Sky Blue", key="new_name", label_visibility="collapsed")
+    with col_new_hex:
+        new_color_hex = st.text_input("Hex", placeholder="#4A90D9", key="new_hex", label_visibility="collapsed")
+    if st.button("+ Add", use_container_width=True):
+        if new_color_name and new_color_hex:
+            if not new_color_hex.startswith("#"):
+                new_color_hex = "#" + new_color_hex
+            palette[new_color_name] = new_color_hex
+            st.rerun()
+
+    if st.button("↺ Reset to defaults", use_container_width=True):
+        st.session_state.palette = dict(DEFAULT_PALETTE)
+        st.rerun()
+
+    st.divider()
+    min_area = st.slider("Remove paths smaller than (area)", 0, 100, 5,
+                         help="Paths below this bounding-box area are deleted")
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
+
+active_palette = st.session_state.palette
+active_palette_lab = build_palette_lab(active_palette)
+
+uploaded = st.file_uploader(
+    "Drag and drop your SVG here, or click to browse",
+    type=["svg"],
+    accept_multiple_files=True,
+)
 
 if uploaded:
     for file in uploaded:
         st.markdown(f"#### `{file.name}`")
-        col_btn, col_dl = st.columns([2, 3])
-
         svg_bytes = file.read()
 
-        with st.spinner("Processando..."):
+        with st.spinner("Processing…"):
             result_svg, color_map, merged, removed = process_svg_bytes(
                 svg_bytes, min_area, active_palette, active_palette_lab
             )
 
-        # Stats
         c1, c2, c3 = st.columns(3)
-        c1.metric("Cores remapeadas", len(color_map))
-        c2.metric("Classes mescladas", merged)
-        c3.metric("Paths removidos", removed)
+        c1.metric("Colours remapped", len(color_map))
+        c2.metric("Classes merged", merged)
+        c3.metric("Paths removed", removed)
 
-        # Download
         out_name = file.name.replace(".svg", "_recolored.svg")
         st.download_button(
-            label=f"⬇️ Baixar {out_name}",
+            label=f"⬇️ Download {out_name}",
             data=result_svg.encode("utf-8"),
             file_name=out_name,
             mime="image/svg+xml",
             type="primary",
         )
 
-        # Color map table
-        with st.expander("Ver mapeamento de cores"):
-            rows = []
-            for orig, (brand_hex, brand_name) in color_map.items():
-                label = PALETTE_LABELS.get(brand_name, brand_name)
-                rows.append({
-                    "Original": orig,
-                    "→ Marca": brand_hex,
-                    "Nome": label,
-                })
+        with st.expander("View colour mapping"):
+            rows = [
+                {"Original": orig, "→ Brand": brand_hex, "Colour name": brand_name}
+                for orig, (brand_hex, brand_name) in color_map.items()
+            ]
             st.dataframe(rows, use_container_width=True, hide_index=True)
 
         st.divider()
 
 else:
-    st.info("Faça upload de um ou mais arquivos SVG para começar.")
+    st.info("Upload one or more SVG files to get started.")
     st.markdown("""
-    **Como funciona:**
-    1. Faça upload do SVG (exportado do Illustrator via Image Trace)
-    2. Cada cor é mapeada para a cor mais próxima da paleta Aer Lingus
-    3. Baixe o SVG já recolorido e com paths desnecessários removidos
+**How it works:**
+1. Upload an SVG exported from Illustrator via Image Trace
+2. Every colour is mapped to the closest colour in the Aer Lingus palette using perceptual Delta E matching
+3. Download the recoloured SVG with noise paths removed
 
-    **Dica:** Você pode editar as cores da paleta na barra lateral antes de processar.
+**Tip:** Edit, add, or remove colours in the sidebar before processing.
     """)
