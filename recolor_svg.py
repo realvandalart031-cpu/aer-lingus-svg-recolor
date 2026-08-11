@@ -79,14 +79,24 @@ def nearest_brand_color(hex_color):
     if not is_very_light and b > r + 30 and b > 100:
         return BRAND_PALETTE["aer-lingus-teal"], "aer-lingus-teal"
 
+    # Override: cores muito escuras e neutras (charcoals) → black, não deep-teal
+    # Ex: #3a3833 classificado como deep-teal mas é quase preto neutro
+    if max(r, g, b) < 75 and (max(r, g, b) - min(r, g, b)) < 25:
+        return BRAND_PALETTE["black"], "black"
+
     best = min(PALETTE_LAB, key=lambda n: delta_e(lab, PALETTE_LAB[n]))
 
     # Bear-muzzle só deve capturar beges quentes (R >> B, tom alaranjado)
-    # Sombras neutras do cachecol (R ≈ B) devem ir para cloud-grey
     if best == "bear-muzzle":
-        warmth = r - b
-        if warmth < 35:
+        if (r - b) < 35:
             best = "cloud-grey"
+
+    # Bear-nose só deve ser o nariz de verdade (muito escuro, L* baixo)
+    # Sombras médias do corpo (marrom médio) → bear-ears-feet
+    if best == "bear-nose":
+        l_star = lab[0]
+        if l_star > 34:
+            best = "bear-ears-feet"
 
     return BRAND_PALETTE[best], best
 

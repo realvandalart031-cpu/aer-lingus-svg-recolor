@@ -83,6 +83,12 @@ def nearest_brand_color(hex_color, palette, palette_lab):
             if "teal" in name.lower() and "deep" not in name.lower():
                 return val, name
 
+    # Very dark neutrals (charcoals) → black, not deep-teal
+    if max(r, g, b) < 75 and (max(r, g, b) - min(r, g, b)) < 25:
+        black_name = next((n for n in palette if "black" in n.lower()), None)
+        if black_name:
+            return palette[black_name], black_name
+
     best = min(palette_lab, key=lambda n: delta_e(lab, palette_lab[n]))
 
     # Muzzle check: only warm beige (R >> B) qualifies
@@ -90,6 +96,14 @@ def nearest_brand_color(hex_color, palette, palette_lab):
         grey_candidates = [n for n in palette_lab if "grey" in n.lower() or "gray" in n.lower() or "white" in n.lower()]
         if grey_candidates:
             best = min(grey_candidates, key=lambda n: delta_e(lab, palette_lab[n]))
+
+    # Nose check: only truly dark browns (L* ≤ 34) — medium shadows → ears/feet
+    if "nose" in best.lower():
+        l_star = lab[0]
+        if l_star > 34:
+            ears_name = next((n for n in palette_lab if "ear" in n.lower() or "feet" in n.lower()), None)
+            if ears_name:
+                best = ears_name
 
     return palette[best], best
 
