@@ -73,15 +73,15 @@ def nearest_brand_color(hex_color):
         return BRAND_PALETTE["shamrock-green"], "shamrock-green"
 
     # Override azuis:
-    # - muito claros (todos canais > 150, tipo nuvem) → cloud-grey via Delta E
-    # - médios com B dominante sobre R → teal
-    is_very_light = r > 150 and g > 150 and b > 150
+    # - muito claros (todos canais > 175, tipo nuvem branca) → cloud-grey via Delta E
+    # - médios/teais com B dominante sobre R → teal (inclui teais claros da etiqueta)
+    is_very_light = r > 175 and g > 175 and b > 175
     if not is_very_light and b > r + 30 and b > 100:
         return BRAND_PALETTE["aer-lingus-teal"], "aer-lingus-teal"
 
-    # Override: cores muito escuras e neutras (charcoals) → black, não deep-teal
-    # Ex: #3a3833 classificado como deep-teal mas é quase preto neutro
-    if max(r, g, b) < 75 and (max(r, g, b) - min(r, g, b)) < 25:
+    # Override: charcoals escuros e neutros → black, não deep-teal
+    # Exclui azuis escuros (navy) que devem ir para deep-teal
+    if max(r, g, b) < 75 and (max(r, g, b) - min(r, g, b)) < 25 and not (b > r + 8 or b > g + 8):
         return BRAND_PALETTE["black"], "black"
 
     best = min(PALETTE_LAB, key=lambda n: delta_e(lab, PALETTE_LAB[n]))

@@ -76,15 +76,16 @@ def nearest_brand_color(hex_color, palette, palette_lab):
         green_name = min(palette_lab, key=lambda n: delta_e(lab, palette_lab[n]))
         return palette[green_name], green_name
 
-    # Blue override: medium saturated blues → teal
-    is_very_light = r > 150 and g > 150 and b > 150
+    # Blue override: medium saturated blues and light teals → teal
+    is_very_light = r > 175 and g > 175 and b > 175
     if not is_very_light and b > r + 30 and b > 100:
         for name, val in palette.items():
             if "teal" in name.lower() and "deep" not in name.lower():
                 return val, name
 
     # Very dark neutrals (charcoals) → black, not deep-teal
-    if max(r, g, b) < 75 and (max(r, g, b) - min(r, g, b)) < 25:
+    # Exclude dark navy blues (b dominant) which should stay as deep-teal
+    if max(r, g, b) < 75 and (max(r, g, b) - min(r, g, b)) < 25 and not (b > r + 8 or b > g + 8):
         black_name = next((n for n in palette if "black" in n.lower()), None)
         if black_name:
             return palette[black_name], black_name
