@@ -86,6 +86,10 @@ def nearest_brand_color(hex_color):
 
     best = min(PALETTE_LAB, key=lambda n: delta_e(lab, PALETTE_LAB[n]))
 
+    # Dark blues going to black → redirect to deep-teal
+    if best == "black" and b > r + 15 and b >= g - 5:
+        best = "deep-teal"
+
     # Bear-muzzle só deve capturar beges quentes (R >> B, tom alaranjado)
     if best == "bear-muzzle":
         if (r - b) < 35:

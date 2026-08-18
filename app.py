@@ -92,6 +92,12 @@ def nearest_brand_color(hex_color, palette, palette_lab):
 
     best = min(palette_lab, key=lambda n: delta_e(lab, palette_lab[n]))
 
+    # Dark blues going to black → redirect to deep-teal
+    if best.lower() == "black" and b > r + 15 and b >= g - 5:
+        deep_name = next((n for n in palette_lab if "deep" in n.lower() and "teal" in n.lower()), None)
+        if deep_name:
+            best = deep_name
+
     # Muzzle check: only warm beige (R >> B) qualifies
     if "muzzle" in best.lower() and (r - b) < 35:
         grey_candidates = [n for n in palette_lab if "grey" in n.lower() or "gray" in n.lower() or "white" in n.lower()]
