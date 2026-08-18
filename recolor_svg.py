@@ -107,17 +107,26 @@ def nearest_brand_color(hex_color):
 # ─── SVG style block parser ───────────────────────────────────────────────────
 
 def parse_style_block(style_text):
-    """Returns dict: class_name → {prop: value}"""
+    """Returns dict: class_name → {prop: value}
+    Handles comma-separated multi-class rules: .a, .b { fill: #xxx }
+    """
     classes = {}
-    for m in re.finditer(r'\.([\w-]+)\s*\{([^}]*)\}', style_text):
-        name = m.group(1)
+    for m in re.finditer(r'([^{}]+)\{([^}]*)\}', style_text):
+        selector = m.group(1).strip()
+        # Extract all class names from selector (handles .a, .b, .c)
+        names = re.findall(r'\.([\w-]+)', selector)
+        if not names:
+            continue
         props = {}
         for part in m.group(2).split(";"):
             part = part.strip()
             if ":" in part:
                 k, _, v = part.partition(":")
                 props[k.strip()] = v.strip()
-        classes[name] = props
+        for name in names:
+            if name not in classes:
+                classes[name] = {}
+            classes[name].update(props)
     return classes
 
 def build_style_block(classes):
@@ -190,7 +199,12 @@ def process_svg(input_path, output_path=None, min_area=MIN_AREA):
 
         for cls_name, props in classes.items():
             fill = props.get("fill")
-            if not fill:
+            # Only merge classes that have a single brand hex fill and nothing else special
+            if not fill or not fill.startswith("#"):
+                continue
+            # Don't merge if class has other properties (stroke, opacity, etc.)
+            significant_props = {k for k in props if k not in ("fill",)}
+            if significant_props:
                 continue
             if fill not in hex_to_canonical:
                 hex_to_canonical[fill] = cls_name

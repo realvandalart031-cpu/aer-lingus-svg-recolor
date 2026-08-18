@@ -118,15 +118,21 @@ def nearest_brand_color(hex_color, palette, palette_lab):
 
 def parse_style_block(style_text):
     classes = {}
-    for m in re.finditer(r'\.([\w-]+)\s*\{([^}]*)\}', style_text):
-        name = m.group(1)
+    for m in re.finditer(r'([^{}]+)\{([^}]*)\}', style_text):
+        selector = m.group(1).strip()
+        names = re.findall(r'\.([\w-]+)', selector)
+        if not names:
+            continue
         props = {}
         for part in m.group(2).split(";"):
             part = part.strip()
             if ":" in part:
                 k, _, v = part.partition(":")
                 props[k.strip()] = v.strip()
-        classes[name] = props
+        for name in names:
+            if name not in classes:
+                classes[name] = {}
+            classes[name].update(props)
     return classes
 
 def build_style_block(classes):
@@ -173,7 +179,9 @@ def process_svg_bytes(svg_bytes, min_area, palette, palette_lab):
         class_alias = {}
         for cls_name, props in classes.items():
             fill = props.get("fill")
-            if not fill:
+            if not fill or not fill.startswith("#"):
+                continue
+            if {k for k in props if k != "fill"}:
                 continue
             if fill not in hex_to_canonical:
                 hex_to_canonical[fill] = cls_name
