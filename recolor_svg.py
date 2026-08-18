@@ -167,20 +167,22 @@ def process_svg(input_path, output_path=None, min_area=MIN_AREA):
         original_style = style_elem.text or ""
         classes = parse_style_block(original_style)
 
-        # 2. Remap fills in each class
+        # 2. Remap fills and strokes in each class
         for cls_name, props in classes.items():
-            fill = props.get("fill")
-            if not fill or fill.lower() in ("none", "transparent"):
-                continue
-            if not fill.startswith("#"):
-                continue
-            if fill not in color_map:
-                brand_hex, brand_name = nearest_brand_color(fill)
-                color_map[fill] = (brand_hex, brand_name)
-            brand_hex, _ = color_map[fill]
-            class_color[cls_name] = fill
-            class_remap[cls_name] = brand_hex
-            props["fill"] = brand_hex
+            for prop_name in ("fill", "stroke"):
+                val = props.get(prop_name)
+                if not val or val.lower() in ("none", "transparent"):
+                    continue
+                if not val.startswith("#"):
+                    continue
+                if val not in color_map:
+                    brand_hex, brand_name = nearest_brand_color(val)
+                    color_map[val] = (brand_hex, brand_name)
+                brand_hex, _ = color_map[val]
+                if prop_name == "fill":
+                    class_color[cls_name] = val
+                    class_remap[cls_name] = brand_hex
+                props[prop_name] = brand_hex
 
         # 3. Merge classes that now share the same fill
         hex_to_canonical = {}  # brand hex → first class that uses it
@@ -216,6 +218,29 @@ def process_svg(input_path, output_path=None, min_area=MIN_AREA):
             seen = set()
             deduped = [c for c in new_cls if not (c in seen or seen.add(c))]
             elem.set("class", " ".join(deduped))
+
+    # 4b. Recolor gradient <stop> elements (not covered by CSS classes)
+    stops_recolored = 0
+    for stop in root.iter(f"{{{SVG_NS}}}stop"):
+        stop_color = stop.get("stop-color")
+        if stop_color and stop_color.startswith("#"):
+            if stop_color not in color_map:
+                brand_hex, brand_name = nearest_brand_color(stop_color)
+                color_map[stop_color] = (brand_hex, brand_name)
+            brand_hex, _ = color_map[stop_color]
+            stop.set("stop-color", brand_hex)
+            stops_recolored += 1
+        style_attr = stop.get("style", "")
+        if "stop-color" in style_attr:
+            m = re.search(r"stop-color:\s*(#[0-9a-fA-F]{3,6})", style_attr)
+            if m:
+                orig = m.group(1)
+                if orig not in color_map:
+                    brand_hex, brand_name = nearest_brand_color(orig)
+                    color_map[orig] = (brand_hex, brand_name)
+                brand_hex, _ = color_map[orig]
+                stop.set("style", re.sub(r"stop-color:\s*#[0-9a-fA-F]{3,6}", f"stop-color:{brand_hex}", style_attr))
+                stops_recolored += 1
 
     # 5. Remove micro paths
     shape_tags = {f"{{{SVG_NS}}}{t}" for t in ("path", "rect", "circle", "ellipse", "polygon")}

@@ -160,13 +160,14 @@ def process_svg_bytes(svg_bytes, min_area, palette, palette_lab):
         classes = parse_style_block(style_elem.text or "")
 
         for cls_name, props in classes.items():
-            fill = props.get("fill")
-            if not fill or fill.lower() in ("none", "transparent") or not fill.startswith("#"):
-                continue
-            if fill not in color_map:
-                brand_hex, brand_name = nearest_brand_color(fill, palette, palette_lab)
-                color_map[fill] = (brand_hex, brand_name)
-            props["fill"] = color_map[fill][0]
+            for prop_name in ("fill", "stroke"):
+                val = props.get(prop_name)
+                if not val or val.lower() in ("none", "transparent") or not val.startswith("#"):
+                    continue
+                if val not in color_map:
+                    brand_hex, brand_name = nearest_brand_color(val, palette, palette_lab)
+                    color_map[val] = (brand_hex, brand_name)
+                props[prop_name] = color_map[val][0]
 
         hex_to_canonical = {}
         class_alias = {}
@@ -195,6 +196,24 @@ def process_svg_bytes(svg_bytes, min_area, palette, palette_lab):
             seen = set()
             deduped = [c for c in new_cls if not (c in seen or seen.add(c))]
             elem.set("class", " ".join(deduped))
+
+    # Recolor gradient <stop> elements (not covered by CSS classes)
+    for stop in root.iter(f"{{{SVG_NS}}}stop"):
+        stop_color = stop.get("stop-color")
+        if stop_color and stop_color.startswith("#"):
+            if stop_color not in color_map:
+                brand_hex, brand_name = nearest_brand_color(stop_color, palette, palette_lab)
+                color_map[stop_color] = (brand_hex, brand_name)
+            stop.set("stop-color", color_map[stop_color][0])
+        style_attr = stop.get("style", "")
+        if "stop-color" in style_attr:
+            m = re.search(r"stop-color:\s*(#[0-9a-fA-F]{3,6})", style_attr)
+            if m:
+                orig = m.group(1)
+                if orig not in color_map:
+                    brand_hex, brand_name = nearest_brand_color(orig, palette, palette_lab)
+                    color_map[orig] = (brand_hex, brand_name)
+                stop.set("style", re.sub(r"stop-color:\s*#[0-9a-fA-F]{3,6}", f"stop-color:{color_map[orig][0]}", style_attr))
 
     shape_tags = {f"{{{SVG_NS}}}{t}" for t in ("path", "rect", "circle", "ellipse", "polygon")}
     removed = 0
